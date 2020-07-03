@@ -637,11 +637,11 @@ typedef NS_ENUM(NSInteger, LayoutMode) {
     if ([recentGames count] > RECENT_GAMES_MAX)
         recentGames = [recentGames subarrayWithRange:NSMakeRange(0, RECENT_GAMES_MAX)];
 
-    if ([recentGames count] > 0) {
-        //NSLog(@"RECENT GAMES: %@", recentGames);
-        gameSectionTitles = [@[RECENT_GAMES_TITLE] arrayByAddingObjectsFromArray:gameSectionTitles];
-        gameData[RECENT_GAMES_TITLE] = recentGames;
-    }
+//    if ([recentGames count] > 0) {
+//        //NSLog(@"RECENT GAMES: %@", recentGames);
+//        gameSectionTitles = [@[RECENT_GAMES_TITLE] arrayByAddingObjectsFromArray:gameSectionTitles];
+//        gameData[RECENT_GAMES_TITLE] = recentGames;
+//    }
     
     _gameSectionTitles = gameSectionTitles;
     _gameData = gameData;
