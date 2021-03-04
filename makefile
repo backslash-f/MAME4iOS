@@ -7,26 +7,34 @@
 #   Copyright (c) Nicola Salmoria and the MAME Team.
 #   Visit http://mamedev.org for licensing and usage restrictions.
 #
-#   Apple Env tweaks 02-2020 Mrjs
+#   Apple Env tweaks 07-2020 Mrjs
 #
 ###########################################################################
 
 OSD = droid-ios
+
 NOWERROR = 1
 
-########## iOS settings
+########## iOS/tvOS specific settings
 
-OSVERSION=12.0 # set minimum tvOS and iOS versions.
+# set minimum tvOS and iOS version for the SDK to use
+OSVERSION = 12.4
 
 iOS = 1
 
 iOSOSX = 1
 
-iOSNOJAILBREAK = 1
+iOSARM64 = 1
 
-iOSARMV7=0
-
-iOSARM64=1
+ifndef ARCH
+ifdef iOSSIMULATOR
+ARCH = $(shell uname -m)	# arm64 or x86_64
+else ifdef macCatalyst
+ARCH = $(shell uname -m)	# arm64 or x86_64
+else
+ARCH = arm64
+endif
+endif
 
 OPTIMIZE = fast
 
@@ -36,8 +44,12 @@ CROSS_BUILD = 1
 
 PTR64 = 1
 
+# uncomment to force the universal DRC to always use the C backend
+# you may need to do this if your target architecture does not have
+# a native backend
 FORCE_DRC_C_BACKEND = 1
 
+# setup the varios Apple SDK locations
 IOSSDK := $(shell xcodebuild -version -sdk iphoneos Path)
 TVOSSDK := $(shell xcodebuild -version -sdk appletvos Path)
 MACOSSDK := $(shell xcodebuild -version -sdk macosx Path)
@@ -54,13 +66,9 @@ SIMSDK := $(shell xcodebuild -version -sdk iphonesimulator Path)
 # src/$(TARGET)/$(SUBTARGET).mak
 #-------------------------------------------------
 
-ifndef TARGET
 TARGET = mame
-endif
 
-ifndef SUBTARGET
 SUBTARGET = $(TARGET)
-endif
 
 #-------------------------------------------------
 # specify OSD layer: windows, sdl, etc.
@@ -87,84 +95,7 @@ endif
 # win32, unix, macosx, os2
 #-------------------------------------------------
 
-ifndef TARGETOS
-
-ifeq ($(OS),Windows_NT)
-TARGETOS = win32
-else
-
-ifneq ($(CROSSBUILD),1)
-
-ifneq ($(OS2_SHELL),)
-TARGETOS = os2
-else
-
-UNAME = $(shell uname -a)
-
-ifeq ($(firstword $(filter Linux,$(UNAME))),Linux)
-TARGETOS = unix
-endif
-ifeq ($(firstword $(filter Solaris,$(UNAME))),Solaris)
-TARGETOS = solaris
-endif
-ifeq ($(firstword $(filter FreeBSD,$(UNAME))),FreeBSD)
-TARGETOS = freebsd
-endif
-ifeq ($(firstword $(filter GNU/kFreeBSD,$(UNAME))),GNU/kFreeBSD)
-TARGETOS = freebsd
-endif
-ifeq ($(firstword $(filter OpenBSD,$(UNAME))),OpenBSD)
-TARGETOS = openbsd
-endif
-ifeq ($(firstword $(filter Darwin,$(UNAME))),Darwin)
 TARGETOS = macosx
-endif
-
-ifndef TARGETOS
-$(error Unable to detect TARGETOS from uname -a: $(UNAME))
-endif
-
-# Autodetect PTR64
-ifndef PTR64
-ifeq ($(firstword $(filter x86_64,$(UNAME))),x86_64)
-PTR64 = 1
-endif
-ifeq ($(firstword $(filter amd64,$(UNAME))),amd64)
-PTR64 = 1
-endif
-ifeq ($(firstword $(filter ppc64,$(UNAME))),ppc64)
-PTR64 = 1
-endif
-endif
-
-# Autodetect BIGENDIAN
-# MacOSX
-ifndef BIGENDIAN
-ifneq (,$(findstring Power,$(UNAME)))
-BIGENDIAN=1
-endif
-# Linux
-ifneq (,$(findstring ppc,$(UNAME)))
-BIGENDIAN=1
-endif
-endif # BIGENDIAN
-
-endif # OS/2
-endif # CROSS_BUILD
-endif # Windows_NT
-
-endif # TARGET_OS
-
-ifeq ($(TARGETOS),win32)
-
-# Autodetect PTR64
-ifndef PTR64
-ifneq (,$(findstring mingw64-w64,$(PATH)))
-PTR64=1
-endif
-endif
-
-endif
 
 #-------------------------------------------------
 # configure name of final executable
@@ -308,9 +239,9 @@ ifndef BUILD_EXE
 BUILD_EXE = $(EXE)
 endif
 
-AR = ar
-CC = cc
-LD = c++
+AR = @ar
+CC = @cc
+LD = @c++
 
 #endif
 
@@ -361,29 +292,14 @@ endif
 # fullname is prefix+name+suffix+suffix64+suffixdebug
 FULLNAME = $(PREFIX)$(PREFIXSDL)$(NAME)$(SUFFIX)$(SUFFIX64)$(SUFFIXDEBUG)$(SUFFIXPROFILE)
 
-# add an EXE suffix to get the final emulator name
-ifdef iOSNOJAILBREAK
-ifdef iOSSIMULATOR
-EMULATOR = libmamesim.a
-endif
-
-ifeq ($(iOSARMV7),1)
-EMULATOR = libmamearmv7.a
-else
+# get the final emulator name
 
 ifdef tvOS
 EMULATOR = libmamearm64-tvos.a
+else ifdef macCatalyst
+EMULATOR = libmamearm64-mac.a
 else
 EMULATOR = libmamearm64.a
-endif
-
-endif
-
-ifdef iOSARMV7S
-EMULATOR = libmamearmv7s.a
-endif
-else
-EMULATOR = $(FULLNAME)$(EXE)
 endif
 
 #-------------------------------------------------
@@ -402,13 +318,6 @@ OBJ = obj/$(OSD)/$(FULLNAME)
 
 # CR/LF setup: use both on win32/os2, CR only on everything else
 DEFS = -DCRLF=2 -DDISABLE_MIDI=1
-
-ifeq ($(TARGETOS),win32)
-DEFS = -DCRLF=3
-endif
-ifeq ($(TARGETOS),os2)
-DEFS = -DCRLF=3
-endif
 
 # map the INLINE to something digestible by GCC
 DEFS += -DINLINE="static inline"
@@ -449,6 +358,12 @@ CONLYFLAGS =
 COBJFLAGS =
 CPPONLYFLAGS =
 
+# add in support for GIT version that was built against: slowsdown make -n eval
+#GIT_VERSION ?= " $(shell git rev-parse --short HEAD || echo unknown)"
+#ifneq ($(GIT_VERSION)," unknown")
+#	CCOMFLAGS += -DGIT_VERSION=\"$(GIT_VERSION)\"
+#endif
+
 # CFLAGS is defined based on C or C++ targets
 # (remember, expansion only happens when used, so doing it here is ok)
 CFLAGS = $(CCOMFLAGS) $(CPPONLYFLAGS)
@@ -470,6 +385,7 @@ endif
 # add -v if we need verbose build information
 ifdef VERBOSE
 CCOMFLAGS += -v
+ARFLAGS += -v
 endif
 
 # add profiling information for the compiler
@@ -485,12 +401,12 @@ CCOMFLAGS += -O$(OPTIMIZE)
 ifneq ($(OPTIMIZE),0)
 ifneq ($(TARGETOS),os2)
 ifndef NOWERROR
-CCOMFLAGS += -Werror -fno-strict-aliasing $(ARCHOPTS)
+CCOMFLAGS += -Werror -fno-strict-aliasing
 else
-CCOMFLAGS += -fno-strict-aliasing $(ARCHOPTS)
+CCOMFLAGS += -fno-strict-aliasing
 endif
 else
-CCOMFLAGS += -fno-strict-aliasing $(ARCHOPTS)
+CCOMFLAGS += -fno-strict-aliasing
 endif
 endif
 
@@ -499,7 +415,7 @@ endif
 #-------------------------------------------------
 
 # add core include paths
-CCOMFLAGS += \
+CCOMFLAGS +=\
 	-I$(SRC)/$(TARGET) \
 	-I$(OBJ)/$(TARGET)/layout \
 	-I$(SRC)/emu \
@@ -539,7 +455,7 @@ LDFLAGS =
 ifneq ($(TARGETOS),macosx)
 ifneq ($(TARGETOS),os2)
 ifneq ($(TARGETOS),solaris)
-#LDFLAGS = -Wl,--warn-common
+LDFLAGS = -Wl,--warn-common
 endif
 endif
 endif
@@ -605,31 +521,8 @@ endif
 # add SoftFloat floating point emulation library
 SOFTFLOAT = $(OBJ)/libsoftfloat.a
 
-ifdef ANDROID
-CCOMFLAGS += --sysroot $(BASE_DEV)
-CCOMFLAGS += -DANDROID
-CCOMFLAGS += -fpic
-
-ifdef AARMV7
-CCOMFLAGS += -march=armv7-a -mfloat-abi=softfp -DARMV7
-LDFLAGS += -Wl,--fix-cortex-a8
-endif
-
-ifdef AARMV6
-LDFLAGS += -Wl,--fix-cortex-a8
-endif
-
-LDFLAGS += -llog -lgcc
-LDFLAGS += -Wl,-soname,libMAME4droid.so -shared
-LDFLAGS += -lc -lm
-endif
-
 ifdef iOS
 CCOMFLAGS += -DIOS -DSDLMAME_NO64BITIO
-
-ifndef iOSNOJAILBREAK
-CCOMFLAGS += -DBTJOY -DJAILBREAK
-endif
 
 ifndef iOSOSX
 CCOMFLAGS += -DIOS3
@@ -640,35 +533,30 @@ ifdef iOSSIMULATOR
 CFLAGS += -isysroot $(SIMSDK)
 endif
 
+CCOMFLAGS += -arch $(ARCH)
+LDFLAGS += -arch $(ARCH)
+
 ifndef iOSSIMULATOR
 
-ifeq ($(iOSARMV7),1)
-CCOMFLAGS += -arch armv7
-LDFLAGS += -arch armv7
-else ifeq ($(iOSARM64),1)
-CCOMFLAGS += -arch arm64
-LDFLAGS += -arch arm64
+ifdef tvOS
+#tvOS build command goes here
+CCOMFLAGS += -isysroot $(TVOSSDK) -mtvos-version-min=$(OSVERSION) -fPIC
+LDFLAGS += -lz -isysroot $(TVOSSDK) -mtvos-version-min=$(OSVERSION) -fPIC -dynamiclib
+else ifdef macCatalyst
+#macCatalyst goes here
+CCOMFLAGS += -isysroot $(MACOSSDK) -miphoneos-version-min=$(OSVERSION) -fPIC -target x86_64-apple-ios13.1-macabi
+LDFLAGS += -lz -isysroot $(MACOSSDK) -miphoneos-version-min=$(OSVERSION) -fPIC -stdlib=libc++ -dynamiclib
 else
-CCOMFLAGS += -arch armv7s
-LDFLAGS += -arch armv7s
-endif
-
-ifndef tvOS #iOS goes here
+#iOS goes here
 CCOMFLAGS += -isysroot $(IOSSDK) -miphoneos-version-min=$(OSVERSION) -fPIC
 LDFLAGS += -lz -isysroot $(IOSSDK) -miphoneos-version-min=$(OSVERSION) -fPIC -stdlib=libc++ -dynamiclib
-else
-
-#tvOS goes here
-CCOMFLAGS += -isysroot $(TVOSSDK) -mtvos-version-min=$(OSVERSION) -fPIC -fembed-bitcode
-LDFLAGS += -lz -isysroot $(TVOSSDK) -miphoneos-version-min=$(OSVERSION) -fPIC -dynamiclib
 endif
 
 else
 
-CCOMFLAGS += -arch x86_64
-CCOMFLAGS += -D__IPHONE_OS_VERSION_MIN_REQUIRED=110000
+#simulator build goes here
 
-LDFLAGS += -arch x86_64
+CCOMFLAGS += -D__IPHONE_OS_VERSION_MIN_REQUIRED=120000
 
 ifndef tvOS
 CCOMFLAGS += -mios-simulator-version-min=$(OSVERSION)
@@ -680,9 +568,6 @@ endif
 
 endif
 
-ifndef iOSNOJAILBREAK
-LDFLAGS += -weak_library ./lib/libBTstack.dylib
-endif
 CCOMFLAGS +=
 
 endif
@@ -720,14 +605,6 @@ include $(SRC)/build/build.mak
 -include $(SRC)/osd/$(CROSS_BUILD_OSD)/build.mak
 include $(SRC)/tools/tools.mak
 
-ifdef iOS
-ifndef iOSNOJAILBREAK
-include $(SRC)/../iOS/objc.mak
-else
-
-endif
-endif
-
 # combine the various definitions to one
 CDEFS = $(DEFS)
 
@@ -761,7 +638,6 @@ checkautodetect:
 	@echo BIGENDIAN=$(BIGENDIAN)
 	@echo UNAME="$(UNAME)"
 
-
 #-------------------------------------------------
 # directory targets
 #-------------------------------------------------
@@ -794,15 +670,9 @@ ifndef EXECUTABLE_DEFINED
 # always recompile the version string
 $(VERSIONOBJ): $(DRVLIBS) $(OSDOBJS) $(CPUOBJS) $(LIBEMUOBJS) $(SOUNDOBJS) $(UTILOBJS) $(EXPATOBJS) $(ZLIBOBJS) $(SOFTFLOATOBJS) $(OSDCOREOBJS) $(RESFILE)
 
-ifdef iOSNOJAILBREAK
 $(EMULATOR): $(VERSIONOBJ) $(DRVLIBS) $(OSDOBJS) $(CPUOBJS) $(LIBEMUOBJS) $(DASMOBJS) $(SOUNDOBJS) $(UTILOBJS) $(EXPATOBJS) $(SOFTFLOATOBJS) $(ZLIBOBJS) $(OSDCOREOBJS) $(RESFILE)
 	@echo Archiving $@...
-	$(AR) -v $(ARFLAGS) $@ $^
-else
-$(EMULATOR): $(VERSIONOBJ) $(DRVLIBS) $(OSDOBJS) $(CPUOBJS) $(LIBEMUOBJS) $(DASMOBJS) $(SOUNDOBJS) $(UTILOBJS) $(EXPATOBJS) $(SOFTFLOATOBJS) $(ZLIBOBJS) $(OSDCOREOBJS) $(RESFILE)
-	@echo Linking $@...
-	$(LD) $(LDFLAGS) $(LDFLAGSEMULATOR) $^ $(LIBS) -o $@
-endif
+	$(AR) $(ARFLAGS) $@ $^
 
 ifeq ($(TARGETOS),win32)
 ifdef SYMBOLS
@@ -840,7 +710,7 @@ $(OBJ)/%.fh: $(SRC)/%.png $(PNG2BDC) $(FILE2STR)
 $(OBJ)/%.a:
 	@echo Archiving $@...
 	@$(RM) $@
-	@$(AR) -v $(ARFLAGS) $@ $^
+	@$(AR) $(ARFLAGS) $@ $^
 
 $(OBJ)/%.o: %.m
 	@echo Compiling $<...

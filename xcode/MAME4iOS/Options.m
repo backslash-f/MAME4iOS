@@ -9,9 +9,8 @@
 #include "myosd.h"
 #import "Options.h"
 #import "Globals.h"
-#import "EmulatorController.h"  // for borderList
+#import "SkinManager.h"         // for skinList
 #import "MetalScreenView.h"     // for shader and filter list
-#import "CGScreenView.h"        // for shader and filter list
 
 @implementation Options
 
@@ -34,40 +33,36 @@
                      nil];
 }
 + (NSArray*)arrayControlType {
-    return @[@"Keyboard or 8BitDo",@"iCade or compatible",@"iCP, Gametel",@"iMpulse"];
+    return @[@"Keyboard",@"iCade or compatible",@"iCP, Gametel",@"iMpulse", @"8BitDo Zero"];
+}
++ (NSArray*)arraySoundValue {
+    return @[@"Off", @"On (11 KHz)", @"On (22 KHz)",@"On (33 KHz)", @"On (44 KHz)", @"On (48 KHz)"];
 }
 
-+ (NSArray*)arrayBorder {
-    return [EmulatorController borderList];
++ (NSArray*)arraySkin {
+    return [SkinManager getSkinNames];
 }
 + (NSArray*)arrayFilter {
-    Options* op = [[Options alloc] init];
-    if (g_isMetalSupported && op.useMetal)
-        return [MetalScreenView filterList];
-    else
-        return [CGScreenView filterList];
+    return [MetalScreenView filterList];
 }
 + (NSArray*)arrayScreenShader {
-    Options* op = [[Options alloc] init];
-    if (g_isMetalSupported && op.useMetal)
-        return [MetalScreenView screenShaderList];
-    else
-        return [CGScreenView screenShaderList];
+    return [MetalScreenView screenShaderList];
 }
 + (NSArray*)arrayLineShader {
-    Options* op = [[Options alloc] init];
-    if (g_isMetalSupported && op.useMetal)
-        return [MetalScreenView lineShaderList];
-    else
-        return [CGScreenView lineShaderList];
+    return [MetalScreenView lineShaderList];
 }
 + (NSArray*)arrayColorSpace {
-    Options* op = [[Options alloc] init];
-    if (g_isMetalSupported && op.useMetal)
-        return [MetalScreenView colorSpaceList];
-    else
-        return [CGScreenView colorSpaceList];
+    return [MetalScreenView colorSpaceList];
 }
+
+#pragma mark - utility funciton to set a single option and save it.
+
++ (void)setOption:(id)value forKey:(NSString*)key {
+    Options* op = [[Options alloc] init];
+    [op setValue:value forKey:key];
+    [op saveOptions];
+}
+
 
 #pragma mark - instance code
 
@@ -80,15 +75,24 @@
     return self;
 }
 
++ (NSString*)optionsFile
+{
+    return @"iOS/options_v23.bin";
+}
+
++ (NSString*)optionsPath
+{
+    return [NSString stringWithUTF8String:get_documents_path(self.optionsFile.UTF8String)];
+}
+
 + (void)resetOptions
 {
-    NSString *path=[NSString stringWithUTF8String:get_documents_path("iOS/options_v23.bin")];
-    [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
+    [[NSFileManager defaultManager] removeItemAtPath:Options.optionsPath error:nil];
 }
 
 - (void)loadOptions
 {
-    NSString *path=[NSString stringWithUTF8String:get_documents_path("iOS/options_v23.bin")];
+    NSString *path = Options.optionsPath;
     
     NSData *plistData;
     id plist = nil;
@@ -115,7 +119,7 @@
         _keepAspectRatio=1;
         
         _filter = @"";
-        _border = @"";
+        _skin = @"";
         _screenShader = @"";
         _lineShader = @"";
 
@@ -129,12 +133,15 @@
         _showINFO = 0;
         _animatedButtons = 1;
         
+#if TARGET_OS_MACCATALYST
+        _fullscreenLandscape= 0;
+        _fullscreenPortrait = 0;
+        _fullscreenJoystick = 0;
+#else
         _fullscreenLandscape= 1;
         _fullscreenPortrait = 0;
         _fullscreenJoystick = 1;
-        
-        _btDeadZoneValue = 2;
-        _touchDeadZone = 1;
+#endif
         
         _overscanValue = 0;
         _tvoutNative = 1;
@@ -224,7 +231,7 @@
         _keepAspectRatio = [([optionsDict objectForKey:@"KeepAspect"] ?: @(1)) intValue];
         
         _filter = [optionsDict objectForKey:@"filter"] ?: @"";
-        _border = [optionsDict objectForKey:@"border"] ?: @"";
+        _skin = [optionsDict objectForKey:@"skin"] ?: @"";
         _screenShader = [optionsDict objectForKey:@"screen-shader"] ?: [optionsDict objectForKey:@"effect"] ?: @"";
         _lineShader = [optionsDict objectForKey:@"line-shader"] ?: @"";
 
@@ -263,9 +270,6 @@
         
         _touchDirectionalEnabled = [[optionsDict objectForKey:@"touchDirectionalEnabled"] intValue];
         
-        _btDeadZoneValue =  [[optionsDict objectForKey:@"btDeadZoneValue"] intValue];
-        _touchDeadZone =  [[optionsDict objectForKey:@"touchDeadZone"] intValue];
-        
         _overscanValue =  [[optionsDict objectForKey:@"overscanValue"] intValue];
         _tvoutNative =  [[optionsDict objectForKey:@"tvoutNative"] intValue];
         
@@ -301,11 +305,23 @@
         
         _lowlsound  =  [[optionsDict objectForKey:@"lowlsound"] intValue];
         _vsync  =  [[optionsDict objectForKey:@"vsync"] intValue];
+        
+#if 0   // leave these values set to the defaults, there is no UI anymore to change them.
+        // ...and they only apply to CoreGraphics not Metal
         _threaded  =  [[optionsDict objectForKey:@"threaded"] intValue];
         _dblbuff  =  [[optionsDict objectForKey:@"dblbuff"] intValue];
-        
         _mainPriority  =  [[optionsDict objectForKey:@"mainPriority"] intValue];
         _videoPriority  =  [[optionsDict objectForKey:@"videoPriority"] intValue];
+        _mainThreadType  =  [[optionsDict objectForKey:@"mainThreadType"] intValue];
+        _videoThreadType  =  [[optionsDict objectForKey:@"videoThreadType"] intValue];
+#else
+        _threaded = 1;
+        _dblbuff = 1;
+        _mainPriority = 5;
+        _videoPriority = 5;
+        _mainThreadType = 0;
+        _videoThreadType = 0;
+#endif
         
         _autofire =  [[optionsDict objectForKey:@"autofire"] intValue];
         
@@ -331,9 +347,6 @@
         _vflicker  =  [[optionsDict objectForKey:@"vflicker"] intValue];
         
         _emuspeed  =  [[optionsDict objectForKey:@"emuspeed"] intValue];
-        
-        _mainThreadType  =  [[optionsDict objectForKey:@"mainThreadType"] intValue];
-        _videoThreadType  =  [[optionsDict objectForKey:@"videoThreadType"] intValue];
     }
     
 }
@@ -344,7 +357,7 @@
                              [NSString stringWithFormat:@"%d", _keepAspectRatio], @"KeepAspect",
                               
                              _filter, @"filter",
-                             _border, @"border",
+                             _skin, @"skin",
                              _screenShader, @"screen-shader",
                              _lineShader, @"line-shader",
 
@@ -379,9 +392,6 @@
                              [NSString stringWithFormat:@"%d", _fullscreenPortrait], @"fullPort",
                              [NSString stringWithFormat:@"%d", _fullscreenJoystick], @"fullJoy",
 
-                             [NSString stringWithFormat:@"%d", _btDeadZoneValue], @"btDeadZoneValue",
-                             [NSString stringWithFormat:@"%d", _touchDeadZone], @"touchDeadZone",
-                             
                              [NSString stringWithFormat:@"%d", _overscanValue], @"overscanValue",
                              [NSString stringWithFormat:@"%d", _tvoutNative], @"tvoutNative",
                              

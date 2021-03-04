@@ -9,10 +9,8 @@
 //
 //============================================================
 
-
+#include "emu.h"
 #include "myosd.h"
-
-#include "bt_joy.h"
 
 #include <unistd.h>
 #include <fcntl.h>
@@ -58,16 +56,9 @@ int  myosd_configure = 0;
 int  myosd_mame_pause = 0;
 int  myosd_reset = 0;
 
-int myosd_video_threaded=-1;
-int myosd_dbl_buffer=1;
-
 int myosd_light_gun = 0;
 
 int myosd_num_of_joys=0;
-
-//int m4all_BplusX = 0;
-//int m4all_hide_LR = 0;
-//int m4all_landscape_buttons = 4;
 
 int myosd_filter_favorites = 0;
 int myosd_filter_clones = 0;
@@ -101,8 +92,6 @@ int  myosd_speed = 100;
 
 char myosd_selected_game[MAX_GAME_NAME] = {'\0'};
 
-extern "C" unsigned long read_mfi_controller(unsigned long res);
-
 /*extern */float joy_analog_x[NUM_JOY][4];
 /*extern */float joy_analog_y[NUM_JOY][2];
 
@@ -117,15 +106,10 @@ int myosd_mouse = 0;
 static int lib_inited = 0;
 static int soundInit = 0;
 static int isPause = 0;
-static int videot_running = 0;
 
 unsigned long myosd_pad_status = 0;
 unsigned long myosd_joy_status[NUM_JOY];
 unsigned short myosd_ext_status = 0;
-
-unsigned short *myosd_curr_screen = NULL;
-unsigned short *myosd_prev_screen = NULL;
-unsigned short myosd_screen[MYOSD_BUFFER_WIDTH * MYOSD_BUFFER_HEIGHT * 2];
 
 typedef struct AQCallbackStruct {
     AudioQueueRef queue;
@@ -136,20 +120,15 @@ typedef struct AQCallbackStruct {
 
 AQCallbackStruct in;
 
-static pthread_t main_tid;
 static pthread_mutex_t cond_mutex     = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t  condition_var   = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t sound_mutex     = PTHREAD_MUTEX_INITIALIZER;
 
-extern int video_thread_priority;
-extern int video_thread_priority_type;
 extern int global_low_latency_sound;
 
 // OSD functions located in the iOS/tvOS app
 extern "C" void iphone_Reset_Views(void);
-extern "C" void iphone_UpdateScreen(void);
 extern "C" int  iphone_DrawScreen(void*);
-extern "C" void droid_ios_video_thread(void);
 
 extern "C" void change_pause(int value);
 void* threaded_video(void* args);
@@ -161,24 +140,9 @@ void queue(unsigned char *p,unsigned size);
 unsigned short dequeue(unsigned char *p,unsigned size);
 inline int emptyQueue(void);
 
-void myosd_video_flip(void)
-{
-    if (myosd_dbl_buffer)
-    {
-        myosd_prev_screen = myosd_curr_screen;
-        
-        if (myosd_curr_screen != myosd_screen)
-            myosd_curr_screen = myosd_screen;
-        else
-            myosd_curr_screen = myosd_screen + (MYOSD_BUFFER_WIDTH * MYOSD_BUFFER_HEIGHT);
-    }
-
-    iphone_UpdateScreen();
-}
-
 void myosd_set_video_mode(int width,int height,int vis_width,int vis_height)
 {
-     printf("myosd_set_video_mode: %dx%d [%dx%d]\n",width,height,vis_width,vis_height);
+     mame_printf_debug("myosd_set_video_mode: %dx%d [%dx%d]\n",width,height,vis_width,vis_height);
 
      myosd_video_width = width;
      myosd_video_height = height;
@@ -186,13 +150,11 @@ void myosd_set_video_mode(int width,int height,int vis_width,int vis_height)
      myosd_vis_video_height = vis_height;
 
      iphone_Reset_Views();
-
-  	 myosd_video_flip();
 }
 
-int myosd_video_draw(void* prims)
+void myosd_video_draw(void* prims)
 {
-    return iphone_DrawScreen(prims);
+    iphone_DrawScreen(prims);
 }
 
 unsigned long myosd_joystick_read(int n)
@@ -205,18 +167,10 @@ unsigned long myosd_joystick_read(int n)
         
        if(myosd_pxasp1 && myosd_num_of_joys==1)
        {
-#ifdef BTJOY
-           res |= bt_joy_poll(0);
-#endif
     	   res |= myosd_joy_status[0];
        }
 
     }
-
-#ifdef BTJOY
-	if (n<myosd_num_of_joys)
-        res |= bt_joy_poll(n);
-#endif
 
     res |= myosd_joy_status[n];
 
@@ -229,12 +183,6 @@ float myosd_joystick_read_analog(int n, char axis)
     
     if(n==0 || myosd_pxasp1 && (myosd_num_of_joys==0 || myosd_num_of_joys==1))
     {
-#ifdef BTJOY
-        if(myosd_pxasp1 && myosd_num_of_joys==1)
-        {
-            bt_joy_poll(0);
-        }
-#endif
         if(axis=='x') res = joy_analog_x[0][0];
         else if (axis=='y') res = joy_analog_y[0][0];
         else if(axis=='X') res = joy_analog_x[0][1];
@@ -245,9 +193,6 @@ float myosd_joystick_read_analog(int n, char axis)
     
     if (n<myosd_num_of_joys)
     {
-#ifdef BTJOY
-        bt_joy_poll(n);
-#endif
         if(axis=='x') res = joy_analog_x[n][0];
         else if (axis=='y') res = joy_analog_y[n][0];
         else if(axis=='X') res = joy_analog_x[n][1];
@@ -259,47 +204,28 @@ float myosd_joystick_read_analog(int n, char axis)
     return res;
 }
 
+// output channel callback, send output "up" to the app via myosd_output
+static void mame_output(void *param, const char *format, va_list argptr)
+{
+    char buffer[1204];
+    vsnprintf(buffer, sizeof(buffer)-1, format, argptr);
+    myosd_output((int)(intptr_t)param, buffer);
+}
+
 void myosd_init(void)
 {
 	int res = 0;
 	struct sched_param param;
+    
+    // capture all MAME output so we can send it to the app.
+    for (int n=0; n<OUTPUT_CHANNEL_COUNT; n++)
+        mame_set_output_channel((output_channel)n, mame_output, (void*)n, NULL, NULL);
 
 	if (!lib_inited )
     {
-	   printf("myosd_init\n");
+       mame_printf_debug("myosd_init\n");
 
-	   //myosd_set_video_mode(320,240,320,240);
-        
-       printf("myosd_dbl_buffer %d\n",myosd_dbl_buffer);
-       myosd_curr_screen = myosd_screen;
-       myosd_prev_screen = myosd_screen;
-
-	   if(videot_running==0)
-	   {
-		   res = pthread_create(&main_tid, NULL, threaded_video, NULL);
-		   if(res!=0)printf("Error setting creating pthread %d \n",res);
-
-		   //param.sched_priority = 67;
-		   //param.sched_priority = 50;
-		   //param.sched_priority = 46;
-		   //param.sched_priority = 100;
-           
-            printf("video priority %d\n",video_thread_priority);
-		    param.sched_priority = video_thread_priority;
-		    int policy;
-		    if(video_thread_priority_type == 1)
-		      policy = SCHED_OTHER;
-		    else if(video_thread_priority_type == 2)
-		      policy = SCHED_RR;
-		    else
-		      policy = SCHED_FIFO;
-
-		   if(pthread_setschedparam(main_tid, policy, &param) != 0)
-			  printf("Error setting pthread priority\n");
-		   videot_running = 1;
-	   }
-
-   	   lib_inited = 1;
+       lib_inited = 1;
     }
 }
 
@@ -307,7 +233,7 @@ void myosd_deinit(void)
 {
     if (lib_inited )
     {
-		printf("myosd_deinit\n");
+        mame_printf_debug("myosd_deinit\n");
 
     	lib_inited = 0;
     }
@@ -316,7 +242,7 @@ void myosd_deinit(void)
 void myosd_closeSound(void) {
 	if( soundInit == 1 )
 	{
-		printf("myosd_closeSound\n");
+        mame_printf_debug("myosd_closeSound\n");
 
 		
         if(global_low_latency_sound)
@@ -333,12 +259,12 @@ void myosd_openSound(int rate,int stereo) {
 	{
         if(global_low_latency_sound)
         {
-            printf("myosd_openSound LOW LATENCY rate:%d stereo:%d \n",rate,stereo);
+            mame_printf_debug("myosd_openSound LOW LATENCY rate:%d stereo:%d \n",rate,stereo);
             sound_open_AudioUnit(rate, 16, stereo);
         }
         else
         {
-		    printf("myosd_openSound NORMAL rate:%d stereo:%d \n",rate,stereo);
+            mame_printf_debug("myosd_openSound NORMAL rate:%d stereo:%d \n",rate,stereo);
             sound_open_AudioQueue(rate, 16, stereo);
         }
        
@@ -378,14 +304,6 @@ void myosd_check_pause(void){
 
 	pthread_mutex_unlock( &cond_mutex );
 }
-
-void* threaded_video(void* args)
-{
-	droid_ios_video_thread();
-	return 0;
-}
-
-/////////////
 
 //SQ buffers for sound between MAME and iOS AudioQueue. AudioQueue
 //SQ callback reads from these.
