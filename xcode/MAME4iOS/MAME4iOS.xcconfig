@@ -15,8 +15,8 @@
 //    you can also set the Development Team via the drop down in the Xcode project editor, for each Target.
 //    you can find your TeamID [here](https://developer.apple.com/account/#/membership)
 
-ORG_IDENTIFIER          = com.example   // CHANGE this to your Organization Identifier.
-DEVELOPMENT_TEAM        = ABC8675309    // CHANGE this to your Team ID. (or select in Xcode project editor)
+ORG_IDENTIFIER          = com.backslash-f.mame4ios   // CHANGE this to your Organization Identifier.
+DEVELOPMENT_TEAM        = UKS358BH88    // CHANGE this to your Team ID. (or select in Xcode project editor)
 CURRENT_PROJECT_VERSION = 2021.8
 MARKETING_VERSION       = 2021.8
 
@@ -48,4 +48,3 @@ MAMELIB_MACOS = $(MAMELIB)-mac.a
 
 MAMELIB_IOS[sdk=iphonesimulator*] = $(MAMELIB)-ios-simulator.a
 MAMELIB_TVOS[sdk=appletvsimulator*] = $(MAMELIB)-tvos-simulator.a
-
