@@ -23,9 +23,9 @@ MARKETING_VERSION       = 2021.8
 // 2. enable or disable entitlements
 //    tvOS TopShelf and iCloud import/export require special app entitlements
 
-ENTITLEMENTS_TYPE = -Base
+//ENTITLEMENTS_TYPE = -Base
 // UN-COMMENT NEXT LINE if you want a build with full entitlements
-// ENTITLEMENTS_TYPE = -Full
+ENTITLEMENTS_TYPE = -Full
 // UN-COMMENT PREV LINE if you want a build with full entitlements
 
 // 3. Select the MAME binary to link to.
